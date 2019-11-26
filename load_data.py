@@ -15,7 +15,7 @@ class Init_MIPS:
         reg = dict()
         char = "R"
         for i, line in enumerate(data_file):
-            val = hex(int(line, 2))
+            val = int(line, 2)
             reg[char+str(i)] = reg.get(char+str(i), val)
         return reg
         

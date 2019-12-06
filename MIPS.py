@@ -4,8 +4,8 @@
 """
 
 from load_data import Init_MIPS
-from pprint import pprint as pp
 from prettytable import PrettyTable
+import argparse
     
 class Instructions:
     def __init__(self, instruction, config):
@@ -16,8 +16,13 @@ class Instructions:
         self.RAW = 'N'
         self.WAR = 'N'
         self.WAW = 'N'
+        self.SETTING = 0
         self.Struct = 'N'
         self.stat = 0
+        self.IHIT = False
+        self.IMISS = False
+        self.DHIT = False
+        self.DMISS = False
         self.iu_cycles = 0
         self.name = instruction[0]
         self.D_FLAG = False
@@ -41,7 +46,7 @@ class Instructions:
             self.pip = None
         elif self.name in ["LW", "SW", "L.D", "S.D"]:
             self.iu_cycles = 1
-            self.cycles = config["MEM"]
+            self.cycles = 0
             self.pip = None
         elif self.name in ["ADD.D", "SUB.D"]:
             self.cycles = config["ADD"][0]
@@ -64,8 +69,8 @@ class Processor:
         self.config = config
         self.icache = dict.fromkeys([0, 1, 2, 3])
         self.dcache = dict.fromkeys([0, 1])
-        self.dcache[0] = dict.fromkeys([0, 1, 'LRU'])
-        self.dcache[1] = dict.fromkeys([0, 1, 'LRU'])
+        self.dcache[0] = dict.fromkeys([0, 1, 'LRU', 'D'])
+        self.dcache[1] = dict.fromkeys([0, 1, 'LRU', 'D'])
         self.hits = 0
         self.dhits = 0
         self.ireq = 0
@@ -77,17 +82,18 @@ class Processor:
         self.loops = loops
         self.loop_pos = list()
         self.final = list()
-        self.run_loop(0, 0)        
+        self.run_loop(0, 0)
 
     def run_loop(self, idx, cl):
         tmp_loop = dict((v,k) for k, v in self.loops.items())
         tmp, new_loop, new_clock = self.run(self.inst_list[idx:], self.reg, self.data, self.loops, idx, cl)        
         if new_loop[0]:
             print("Running loop...", new_loop)
-            for d, el in enumerate(tmp[:-1]):
-                for k, v in tmp_loop.items():                        
-                    if k == len(self.final):                            
-                        self.loop_pos.append((len(self.final), v))
+            te = 1 if len(self.final)==0 else len(self.final)
+            for k, v in tmp_loop.items():                        
+                if k == (k%te):                            
+                    self.loop_pos.append((len(self.final), v))
+            for d, el in enumerate(tmp[:-1]):                                
                 self.final.append([el.name, el.op1, el.op2, el.op3, el.IF, el.ID, el.EX, el.WB, el.RAW, el.WAR, el.WAW, el.Struct])            
             for i, k in enumerate(self.or_inst):
                     self.inst_list[i].__init__(k, self.config)            
@@ -99,40 +105,57 @@ class Processor:
                 else:
                     self.loop_pos.append((len(self.final), v))
             for d, el in enumerate(tmp):                                        
-                self.final.append([el.name, el.op1, el.op2, el.op3, el.IF, el.ID, el.EX, el.WB, el.RAW, el.WAR, el.WAW, el.Struct])            
+                self.final.append([el.name, el.op1, el.op2, el.op3, el.IF, el.ID, el.EX, el.WB, el.RAW, el.WAR, el.WAW, el.Struct])                    
                 
     def run(self, instructions, reg, data, loops, loop_idx, clock):
 #        idx = len(instructions)
-        x = True        
+        x = 200
+        SET1, SET2 = False, False
+        i = 0
         send_cl = 0
+        BUS = [False, None]
         self.clock = clock        
         NEED_LOOP = [False, None]        
-        while x:
+        while i<x:
             self.clock += 1            
             for j, inst in enumerate(instructions):                  
                 if inst.WB == 0:                    
                     if inst.stat == 0 and (self.IFbusy[0] == 0 or self.IFbusy[1] == j):                        
-                        if self.IFbusy[1] != j and not NEED_LOOP[0] or (j+1<len(instructions) and instructions[j].name == "HLT" and instructions[j+1].name == "HLT"):
-                            self.ireq += 1
-                            i_key = j+loop_idx
-                            iblock = int((i_key)/4) % 4
-                            if self.icache[iblock] is not None:
-                                if i_key in self.icache[iblock]:                                    
-                                    if_penalty = self.config["I-Cache"]
-                                    self.hits += 1
-                                else:
-                                    if_penalty = 2 * (self.config["I-Cache"] + self.config["MEM"])
-                                    self.icache[iblock] = list(range(i_key, i_key+4))
+                        if (self.IFbusy[1] != j and not NEED_LOOP[0]) or (j+1<len(instructions) and instructions[j].name == "HLT" and instructions[j+1].name == "HLT"):                            
+                            if send_cl > 0:
+                                pass
                             else:                                
-                                if_penalty = 2 * (self.config["I-Cache"] + self.config["MEM"])
-                                self.icache[iblock] = list(range(i_key, i_key+4))                            
+                                self.ireq += 1                            
+                                i_key = j+loop_idx
+                                iblock = int((i_key)/4) % 4
+                                if self.icache[iblock] is not None:
+                                    if i_key in self.icache[iblock]:                                    
+                                        if_penalty = self.config["I-Cache"]                                        
+                                        self.hits += 1
+                                        inst.IHIT = True
+                                    else:                                                            
+                                        if BUS[0]:
+                                            continue
+                                        else:
+                                            inst.IMISS = True 
+                                            BUS = [True, j]
+                                        if_penalty = 2 * (self.config["I-Cache"] + self.config["MEM"])
+                                        self.icache[iblock] = list(range(i_key, i_key+4))
+                                else:                   
+                                    inst.IMISS = True   
+                                    if BUS[0]:
+                                        continue
+                                    else:
+                                        BUS = [True, j]
+                                    if_penalty = 2 * (self.config["I-Cache"] + self.config["MEM"])
+                                    self.icache[iblock] = list(range(i_key, i_key+4))                            
                         
                         if inst.name == "HLT":                            
                             if NEED_LOOP[0]:                                                                                      
                                 if instructions[j-1].name == "HLT":                                    
-                                    if send_cl == 0:
-                                        send_cl = self.clock                                  
-                                    instructions[j-1].IF = send_cl
+                                    if send_cl == 0:                                        
+                                        send_cl = self.clock                                          
+                                    instructions[j-1].IF = send_cl                                    
                                     for tmp_inst in instructions:
                                         if tmp_inst.name != "HLT":
                                             if tmp_inst.stat != 4:                                            
@@ -143,48 +166,91 @@ class Processor:
                                     if send:
                                         print("Returning loop...", NEED_LOOP, send_cl)
                                         return instructions, NEED_LOOP, send_cl                                    
-                                else:                                    
-                                    pass
+                                else:                                                       
+                                    pass                                    
                             else:                                
-                                if if_penalty != 0:
-                                    if_penalty -= 1
-                                    self.IFbusy = [1, j]
-                                    if if_penalty == 0:                                             
+                                if inst.IMISS and BUS[0] and BUS[1]!=j:
+                                    inst.Struct = "BB"
+                                    continue
+                                elif inst.IMISS and not BUS[0] or BUS[1] == j:
+                                 if if_penalty != 0:                                
+                                        if_penalty -= 1                                    
+                                        self.IFbusy = [1, j]                                
+                                        if if_penalty == 0:
+                                            BUS = [False, None]
+                                            inst.IF = self.clock
+                                            inst.stat = 1  
+                                            if instructions[j-1].name == "HLT":
+    #                                            x = False
+                                                print("Finished execution", self.clock)
+                                elif inst.IHIT:
+                                    if if_penalty != 0:                                
+                                        if_penalty -= 1                                    
+                                        self.IFbusy = [1, j]                                
+                                        if if_penalty == 0:                                    
+                                            inst.IF = self.clock
+                                            inst.stat = 1  
+                                            if instructions[j-1].name == "HLT":
+    #                                            x = False
+                                                print("Finished execution", self.clock)
+                                else:
+                                    inst.Struct = "BB"
+                                        
+                        else:                      
+                            if inst.IMISS and BUS[0] and BUS[1]!=j:
+                                inst.Struct = "BB"
+                                continue
+                            elif inst.IMISS and not BUS[0] or BUS[1] == j:
+                             if if_penalty != 0:                                
+                                    if_penalty -= 1                                    
+                                    self.IFbusy = [1, j]                                
+                                    if if_penalty == 0:
+                                        BUS = [False, None]
                                         inst.IF = self.clock
-                                        inst.stat = 1
-                                        if instructions[j-1].name == "HLT":
-                                            x = False
-                                            print("Finished execution", self.clock)
-                        else:                             
-                             if if_penalty != 0:
-                                if_penalty -= 1
-                                self.IFbusy = [1, j]
-                                if if_penalty == 0:                                    
-                                    inst.IF = self.clock
-                                    inst.stat = 1                             
-                                 
-                        
-                    elif inst.stat == 1 and not self.IDbusy[0]:
+                                        inst.stat = 1  
+                            elif inst.IHIT:
+                                if if_penalty != 0:                                
+                                    if_penalty -= 1                                    
+                                    self.IFbusy = [1, j]                                
+                                    if if_penalty == 0:                                    
+                                        inst.IF = self.clock
+                                        inst.stat = 1  
+                            else:
+                                inst.Struct = "BB"
+                                                            
+                    elif inst.stat == 1 and (not self.IDbusy[0] or self.IDbusy[1] == j):                        
                         if inst.op1 in self.reg_stat.keys() and j != self.reg_stat[inst.op1] and inst.name != "BNE":
                             if inst.name not in ["SW", "S.D"]:
                                 inst.WAW = "Y"
                                 continue  
-                        if inst.name in ["LW", "SW", "L.D", "S.D", "DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:                            
-                                if inst.name in ["SW", "S.D"]:
-                                    if inst.op1 not in self.reg_stat.keys():
-                                        self.IFbusy = [0, None]                        
+                        if inst.name in ["LW", "SW", "L.D", "S.D", "DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:                                                            
+                                if inst.name in ["SW", "S.D"]:                                    
+                                    if inst.op1 not in self.reg_stat.keys():                                        
+                                        if self.IFbusy[1] != j:
+                                            pass
+                                        else:
+                                            self.IFbusy = [0, None]
                                         self.IDbusy = [1, j]
                                         inst.ID = self.clock    
-                                        inst.stat = 2
-                                    else:
+                                        inst.stat = 2                                    
+                                    else:                                        
+                                        if inst.RAW == "N":                                            
+                                            self.IFbusy = [0, None]
+                                        self.IDbusy = [1, j]
                                         inst.RAW = "Y"
                                         continue
-                                else:
-                                    self.reg_stat[inst.op1] = j
-                                    self.IFbusy = [0, None]                        
-                                    self.IDbusy = [1, j]
-                                    inst.ID = self.clock    
-                                    inst.stat = 2
+                                else:               
+                                    if SET1 or not self.IU[0]:                                             
+                                        if (instructions[j-1].ID - inst.IF) > 0:
+                                            inst.IF = instructions[j-1].ID
+                                        self.reg_stat[inst.op1] = j
+                                        self.IFbusy = [0, None]                                    
+                                        self.IDbusy = [1, j]
+                                        print("Eh", self.clock, inst.name, inst.op1, j)
+                                        inst.ID = self.clock    
+                                        inst.stat = 2
+                                    else:                                        
+                                        continue
                         elif inst.name in ["ADD.D", "SUB.D", "MUL.D", "DIV.D"]:                             
                             if inst.op2 not in self.reg_stat.keys() and inst.op3 not in self.reg_stat.keys():                                
                                 if inst.name in ["ADD.D", "SUB.D"]:
@@ -199,6 +265,8 @@ class Processor:
                                     self.reg_stat[inst.op1] = j
                                     inst.ID = self.clock       
                                     inst.stat = 2
+                                else:                                                                         
+                                    inst.Struct = "Y"                                                  
                             elif (inst.op2 in self.reg_stat.keys() and (j == self.reg_stat.get(inst.op2, None)) or (inst.op3 in self.reg_stat.keys())\
                                   and j == self.reg_stat.get(inst.op3, None)):
                                 self.IFbusy = [0, None]                        
@@ -226,49 +294,103 @@ class Processor:
                                 inst.stat = 4
                             
                         
-                    elif inst.stat == 2:                                                
-                        self.IDbusy = [0, None]
+                    elif inst.stat == 2:     
+                                                                                         
                         if inst.name in ["LW", "SW", "L.D", "S.D", "DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:                            
                             if inst.name in ["LW", "SW", "L.D", "S.D"]:
-                                if inst.D_FLAG == False:                                
+                                if inst.D_FLAG == False:                                       
                                     id_penalty = 2 * (self.config["D-Cache"] + self.config["MEM"])                                
                                     or_data = int(inst.op2[0]) + self.reg[inst.op2[-3:-1]]
                                     if inst.name in ["L.D", "S.D"]:
                                         or_data = [or_data, or_data+4]
                                     elif inst.name in ["LW", "SW"]:
                                         or_data = [or_data]
-                                    for or_d in or_data:
-                                        self.dreq += 1
+                                    for or_d in or_data:                                        
                                         dc_set = int(or_d/16) % 2
                                         range_data = int(or_d/16) * 16                                
                                         check_set = [next((kem for kem, v in self.dcache[dc_set].items() if v is not None and kem!="LRU" and or_d in v), None)]                                        
                                         if check_set[0] is not None:                                        
                                             inst.D_FLAG = True
-                                            self.dhits += 1
-                                        else:                                                                             
-                                            if self.dcache[dc_set]['LRU'] is not None:
-                                                inst.cycles += id_penalty - 1
+                                            self.dhits += 1     
+                                            self.dreq += 1
+                                            inst.DHIT = True                                                             
+                                            inst.cycles += self.config["D-Cache"]                                            
+                                        else:               
+                                             
+                                             if BUS[0]:
+                                                print("LLLDDDDD", self.clock, inst.name, inst.op1)
+                                                continue
+                                             else:
+                                                inst.DMISS = True
+                                                self.dreq += 1
+                                                BUS = [True, j]
+                                             if self.dcache[dc_set]['LRU'] is not None:
+                                                if inst.name == "S.D":
+                                                    inst.cycles += id_penalty + self.config["D-Cache"]
+                                                elif inst.name == "SW":
+                                                    inst.cycles += id_penalty
+                                                else:
+                                                    inst.cycles += id_penalty
                                                 self.dcache[dc_set][self.dcache[dc_set]['LRU']] = list(range(range_data, range_data+16, 4))
                                                 self.dcache[dc_set]['LRU'] = self.dcache[dc_set]['LRU'] ^ 1
-                                            else:
-                                                inst.cycles += id_penalty - 1
+                                             else:
+                                                if inst.name == "S.D":
+                                                    inst.cycles += id_penalty+1
+                                                else:
+                                                    inst.cycles += id_penalty
                                                 self.dcache[dc_set][0] = list(range(range_data, range_data+16, 4))
-                                                self.dcache[dc_set]['LRU'] = 1                            
-                            if not self.IU[0] and inst.iu_cycles == 1:
-                                self.IU = [1, j]                                 
-                                inst.iu_cycles -= 1                                
-                            else:                                                      
-                                if self.MEMbusy[0] == 0 or self.MEMbusy[1] == j:                                    
-                                    if self.MEMbusy[0] == 0:
-                                        self.IU = [0, None]
-                                    self.MEMbusy = [1, j]                                    
-                                    inst.cycles -= 1                                    
-                                    if inst.cycles <= 0:                                        
-                                        inst.EX = self.clock
-                                        inst.stat = 3                                    
-                                else:                                    
-                                    inst.Struct = "Y"
+                                                self.dcache[dc_set]['LRU'] = 1
+                                                                            
+                            if not self.IU[0] and inst.iu_cycles == 1:                                                                                                
+                                if self.MEMbusy[1] == j-1:
+                                    inst.SETTING += 1
+                                if instructions[j-1].SETTING > 1:
+                                    inst.Struct = "SET"
+                                if SET2 or not self.MEMbusy[0]: 
+                                    self.IDbusy = [0, None]  
+                                    self.IU = [1, j]            
+                                    print("IU DONE", self.clock, inst.name, inst.op1)
+                                    inst.iu_cycles -= 1   
+                                    SET1 = True
+                                else:
+                                    inst.Struct = "A"                                    
+                                    continue
+                            else:                                
+                                if inst.DMISS and BUS[0] and BUS[1]!=j:
+                                    inst.Struct = "DD"
+                                    continue
+                                elif (inst.DMISS and not BUS[0]) or BUS[1] == j:                                                                         
+                                    if self.MEMbusy[0] == 0 or self.MEMbusy[1] == j:                                    
+                                        if self.MEMbusy[0] == 0:
+                                            self.IU = [0, None]
+                                            SET1 = False
+                                        self.MEMbusy = [1, j] 
+                                        print("Cycles", inst.cycles, inst.name, inst.op1, self.clock)
+                                        inst.cycles -= 1                                    
+                                        if inst.cycles <= 0:
+                                            BUS = [False, None]
+                                            SET2 = True
+                                            inst.EX = self.clock
+                                            inst.stat = 3                                              
+                                    else:                 
+                                        inst.Struct = "Y"
+                                elif inst.DHIT or inst.name in ["DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:
+                                    if self.MEMbusy[0] == 0 or self.MEMbusy[1] == j:                                    
+                                        if self.MEMbusy[0] == 0:
+                                            self.IU = [0, None]
+                                            SET1 = False                                        
+                                        self.MEMbusy = [1, j]                                    
+                                        inst.cycles -= 1                                    
+                                        if inst.cycles <= 0:                                            
+                                            SET2 = True
+                                            inst.EX = self.clock
+                                            inst.stat = 3                                    
+                                    else:                 
+                                        inst.Struct = "Y"
+                                else:
+                                    inst.Struct = "DD"
                         elif inst.name in ["ADD.D", "SUB.D"]:
+                            self.IDbusy = [0, None]
                             if not inst.pip:                                 
                                 if self.ADD[0] == 0 or self.ADD[1] == j:
                                     self.ADD = [1, j]
@@ -284,14 +406,15 @@ class Processor:
                                     inst.EX = self.clock
                                     inst.stat = 3
                         elif inst.name == "MUL.D":
-                            if not inst.pip:
+                            self.IDbusy = [0, None]
+                            if not inst.pip:                                
                                 if self.MULT[0] == 0 or self.MULT[1] == j:
                                     self.MULT = [1, j]
                                     inst.cycles -= 1
                                     if inst.cycles == 0:
                                         self.MULT = [0, None]
                                         inst.EX = self.clock
-                                        inst.stat = 3
+                                        inst.stat = 3        
                             else:
                                 inst.cycles -= 1
                                 if inst.cycles == 0:
@@ -299,6 +422,7 @@ class Processor:
                                     inst.EX = self.clock
                                     inst.stat = 3
                         elif inst.name == "DIV.D":
+                            self.IDbusy = [0, None]
                             if not inst.pip:
                                 if self.DIV[0] == 0 or self.DIV[1] == j:
                                     self.DIV = [1, j]
@@ -317,29 +441,33 @@ class Processor:
                     elif inst.stat == 3:
                         if not self.WBbusy[0]:
                             if inst.name in ["LW", "SW", "L.D", "S.D", "DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:                                
-                                self.MEMbusy = [0, None]
-                                inst.WB = self.clock
-                                inst.stat = 4
-                                self.WBbusy = [1, self.clock]
-                                if inst.name not in ["SW", "S.D"]:
-                                    del self.reg_stat[inst.op1]
-                                else:
-                                    pass
-                                if inst.op3 is not None:
-                                    if inst.name in ["DADD", "DADDI"]:
-                                        if inst.op3 in reg.keys():
-                                            #inside DADD
-                                            reg[inst.op1] = reg[inst.op2] + reg[inst.op3]
-                                        else:
-                                            #inside DADDI
-                                            reg[inst.op1] = reg[inst.op2] + int(inst.op3)                                            
-                                    elif inst.name in ["DSUB", "DSUBI"]:
-                                        if inst.op3 in reg.keys():
-                                            #inside DSUB
-                                            reg[inst.op1] = reg[inst.op2] - reg[inst.op3]
-                                        else:
-                                            #inside DSUBI
-                                            reg[inst.op1] = reg[inst.op2] - int(inst.op3)                                
+                                if SET2:                                    
+                                    self.MEMbusy = [0, None]
+                                    SET2 = False
+                                    inst.WB = self.clock
+                                    inst.stat = 4
+                                    self.WBbusy = [1, self.clock]
+                                    if inst.name not in ["SW", "S.D"]:
+                                        del self.reg_stat[inst.op1]
+                                    else:
+                                        pass
+                                    if inst.op3 is not None:
+                                        if inst.name in ["DADD", "DADDI"]:
+                                            if inst.op3 in reg.keys():
+                                                #inside DADD
+                                                reg[inst.op1] = reg[inst.op2] + reg[inst.op3]
+                                            else:
+                                                #inside DADDI
+                                                reg[inst.op1] = reg[inst.op2] + int(inst.op3)                                            
+                                        elif inst.name in ["DSUB", "DSUBI"]:
+                                            if inst.op3 in reg.keys():
+                                                #inside DSUB
+                                                reg[inst.op1] = reg[inst.op2] - reg[inst.op3]
+                                            else:
+                                                #inside DSUBI
+                                                reg[inst.op1] = reg[inst.op2] - int(inst.op3)                                
+                                else:                                    
+                                    continue
                             else:
 #                                self.ADD = [0, None]
                                 inst.stat = 4
@@ -374,12 +502,13 @@ class Processor:
 #            for k in instructions:                
 #                print(k.IF, k.ID, k.EX, k.WB)
 #            print("\n")                
-#            i+=1                    
+            i+=1                    
+        print(self.dcache)
         return instructions, NEED_LOOP, self.clock
         
 def print_table(inst, l, pos):
     x = PrettyTable()
-    x.border = False
+    x.border = False        
     x.field_names = ["","Instruction","FT", "ID", "EX", "WB", "RAW", "WAR", "WAW", "Struct"]
     x.align["Instruction"] = "l"
     tmp = list()
@@ -389,6 +518,12 @@ def print_table(inst, l, pos):
         op3 = "" if el[3] is None else ", "+el[3]
         tmp_name = el[0]+" "+op1+op2+op3
         loop = ""
+        el[4] = " " if el[4] is 0 else el[4]
+        el[5] = " " if el[5] is 0 else el[5]
+        el[6] = " " if el[6] is 0 else el[6]
+        el[7] = " " if el[7] is 0 else el[7]
+        if i == len(inst)-1:
+            el[8], el[9], el[10], el[11] = " ", " ", " ", " "
         tmp.append([loop,tmp_name,el[4], el[5], el[6], el[7], el[8], el[9], el[10], el[11]])
         
     for i in pos:
@@ -402,8 +537,18 @@ def print_table(inst, l, pos):
     return x
 
 if __name__ == "__main__" :
+    parser = argparse.ArgumentParser(description='Parsing input files')
+    parser.add_argument('--inst', type=str, help='instruction file')
+    parser.add_argument('--data', type=str, help='data file')
+    parser.add_argument('--reg', type=str, help='reg file')
+    parser.add_argument('--config', type=str, help='config file')
+    parser.add_argument('--result', type=str, help='result file')
+    
+    args = parser.parse_args()
+    
     root = "./test/test_case_3/"
-    init_mips = Init_MIPS(root+"config.txt", root+"inst.txt", root+"data.txt", root+"reg.txt")    
+#    init_mips = Init_MIPS(root+"config.txt", root+"inst.txt", root+"data.txt", root+"reg.txt")    
+    init_mips = Init_MIPS(root+args.config, root+args.inst, root+args.data, root+args.reg)    
     instructionObjs = list()
     for el in init_mips.instructions:
         instructionObjs.append(Instructions(el, init_mips.config_dict))    

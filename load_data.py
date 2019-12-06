@@ -80,13 +80,3 @@ class Init_MIPS:
                     temp.extend(d.split())
                 inst_list.append(temp)
         return inst_list, loops
-        
-if __name__ == "__main__" :    
-    
-    config = "./config.txt"
-    inst = "./inst.txt"
-    data = "./data.txt"
-    reg = "./reg.txt"
-    
-    init_mips = Init_MIPS(config, inst, data, reg)    
-    print(init_mips.instructions)

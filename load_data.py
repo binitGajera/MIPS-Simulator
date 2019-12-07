@@ -27,8 +27,8 @@ class Init_MIPS:
         for line in data_file:
             if line != "\n":
                 val = int(line, 2)
-                mem[hex(mem_start)] = mem.get(hex(mem_start), val)
-                mem_start += 1
+                mem[int(mem_start)] = mem.get(int(mem_start), val)
+                mem_start += 4
         return mem
         
     def load_config(self, inp):

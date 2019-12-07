@@ -28,8 +28,8 @@ class Instructions:
         self.D_FLAG = False
         if len(instruction)>1:
             self.op1 = instruction[1]
-            self.op2 = instruction[2]
-            self.op3 = None if len(instruction[1:]) == 2 else instruction[3]
+            self.op2 = None if len(instruction[1:]) == 1 else instruction[2]
+            self.op3 = None if len(instruction[1:]) == 2 or len(instruction[1:]) == 1 else instruction[3]
         else:
             self.op1 = None
             self.op2 = None
@@ -87,8 +87,7 @@ class Processor:
     def run_loop(self, idx, cl):
         tmp_loop = dict((v,k) for k, v in self.loops.items())
         tmp, new_loop, new_clock = self.run(self.inst_list[idx:], self.reg, self.data, self.loops, idx, cl)        
-        if new_loop[0]:
-            print("Running loop...", new_loop)
+        if new_loop[0]:            
             te = 1 if len(self.final)==0 else len(self.final)
             for k, v in tmp_loop.items():                        
                 if k == (k%te):                            
@@ -108,8 +107,7 @@ class Processor:
                 self.final.append([el.name, el.op1, el.op2, el.op3, el.IF, el.ID, el.EX, el.WB, el.RAW, el.WAR, el.WAW, el.Struct])                    
                 
     def run(self, instructions, reg, data, loops, loop_idx, clock):
-#        idx = len(instructions)
-        x = 200
+        x = 1000
         SET1, SET2 = False, False
         i = 0
         send_cl = 0
@@ -163,14 +161,13 @@ class Processor:
                                                 break
                                             else:                                                
                                                 send = True                                    
-                                    if send:
-                                        print("Returning loop...", NEED_LOOP, send_cl)
+                                    if send:                                        
                                         return instructions, NEED_LOOP, send_cl                                    
                                 else:                                                       
                                     pass                                    
                             else:                                
                                 if inst.IMISS and BUS[0] and BUS[1]!=j:
-                                    inst.Struct = "BB"
+                                    inst.Struct = "Y"
                                     continue
                                 elif inst.IMISS and not BUS[0] or BUS[1] == j:
                                  if if_penalty != 0:                                
@@ -180,9 +177,8 @@ class Processor:
                                             BUS = [False, None]
                                             inst.IF = self.clock
                                             inst.stat = 1  
-                                            if instructions[j-1].name == "HLT":
-    #                                            x = False
-                                                print("Finished execution", self.clock)
+#                                            if instructions[j-1].name == "HLT":
+#                                                x = False                                                
                                 elif inst.IHIT:
                                     if if_penalty != 0:                                
                                         if_penalty -= 1                                    
@@ -190,15 +186,14 @@ class Processor:
                                         if if_penalty == 0:                                    
                                             inst.IF = self.clock
                                             inst.stat = 1  
-                                            if instructions[j-1].name == "HLT":
-    #                                            x = False
-                                                print("Finished execution", self.clock)
+#                                            if instructions[j-1].name == "HLT":
+#                                                x = False                                                
                                 else:
-                                    inst.Struct = "BB"
+                                    inst.Struct = "Y"
                                         
                         else:                      
                             if inst.IMISS and BUS[0] and BUS[1]!=j:
-                                inst.Struct = "BB"
+                                inst.Struct = "Y"
                                 continue
                             elif inst.IMISS and not BUS[0] or BUS[1] == j:
                              if if_penalty != 0:                                
@@ -216,13 +211,13 @@ class Processor:
                                         inst.IF = self.clock
                                         inst.stat = 1  
                             else:
-                                inst.Struct = "BB"
+                                inst.Struct = "Y"
                                                             
                     elif inst.stat == 1 and (not self.IDbusy[0] or self.IDbusy[1] == j):                        
-                        if inst.op1 in self.reg_stat.keys() and j != self.reg_stat[inst.op1] and inst.name != "BNE":
+                        if inst.op1 in self.reg_stat.keys() and j != self.reg_stat[inst.op1] and inst.name not in ["BNE", "BEQ"]:
                             if inst.name not in ["SW", "S.D"]:
                                 inst.WAW = "Y"
-                                continue  
+                                continue
                         if inst.name in ["LW", "SW", "L.D", "S.D", "DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:                                                            
                                 if inst.name in ["SW", "S.D"]:                                    
                                     if inst.op1 not in self.reg_stat.keys():                                        
@@ -245,8 +240,7 @@ class Processor:
                                             inst.IF = instructions[j-1].ID
                                         self.reg_stat[inst.op1] = j
                                         self.IFbusy = [0, None]                                    
-                                        self.IDbusy = [1, j]
-                                        print("Eh", self.clock, inst.name, inst.op1, j)
+                                        self.IDbusy = [1, j]                                        
                                         inst.ID = self.clock    
                                         inst.stat = 2
                                     else:                                        
@@ -287,6 +281,18 @@ class Processor:
                                 inst.stat = 4
                             else:                                
                                 inst.RAW = "Y"
+                        elif inst.name == "BEQ" and inst.ID == 0:                            
+                            if inst.op1 not in self.reg_stat.keys() and inst.op2 not in self.reg_stat.keys():                                
+                                self.IFbusy = [0, None]                        
+#                                self.IDbusy = [1, j]                                
+                                inst.ID = self.clock                                
+                                if reg[inst.op1] == reg[inst.op2]:
+                                    NEED_LOOP = [True, loops.get(inst.op3)]                                      
+                                else:
+                                    pass
+                                inst.stat = 4
+                            else:                                
+                                inst.RAW = "Y"
                         elif inst.name == "HLT":
                             if not instructions[j-1].name == "HLT" and inst.ID==0:                                 
                                 self.IFbusy = [0, None]
@@ -309,7 +315,7 @@ class Processor:
                                         dc_set = int(or_d/16) % 2
                                         range_data = int(or_d/16) * 16                                
                                         check_set = [next((kem for kem, v in self.dcache[dc_set].items() if v is not None and kem!="LRU" and or_d in v), None)]                                        
-                                        if check_set[0] is not None:                                        
+                                        if check_set[0] is not None:                                                
                                             inst.D_FLAG = True
                                             self.dhits += 1     
                                             self.dreq += 1
@@ -317,55 +323,81 @@ class Processor:
                                             inst.cycles += self.config["D-Cache"]                                            
                                         else:               
                                              
-                                             if BUS[0]:
-                                                print("LLLDDDDD", self.clock, inst.name, inst.op1)
+                                             if BUS[0]:                                                
                                                 continue
                                              else:
                                                 inst.DMISS = True
                                                 self.dreq += 1
+                                                inst.D_FLAG = True
                                                 BUS = [True, j]
-                                             if self.dcache[dc_set]['LRU'] is not None:
-                                                if inst.name == "S.D":
-                                                    inst.cycles += id_penalty + self.config["D-Cache"]
-                                                elif inst.name == "SW":
+                                             if self.dcache[dc_set]['LRU'] is not None:                                                
+                                                 nope = self.dcache[dc_set]['D'][self.dcache[dc_set]['LRU']]
+                                                 if inst.name == "S.D":
+                                                    self.dcache[dc_set][self.dcache[dc_set]['LRU']] = list(range(range_data, range_data+16, 4))                                                    
+                                                    if nope == 0:                                                        
+                                                        self.dcache[dc_set]["D"][self.dcache[dc_set]['LRU']] = 1
+                                                    else:
+                                                        inst.cycles += id_penalty + self.config["D-Cache"]
+                                                    inst.cycles += id_penalty + self.config["D-Cache"]                                                    
+                                                 elif inst.name == "SW":
+                                                    self.dcache[dc_set][self.dcache[dc_set]['LRU']] = list(range(range_data, range_data+16, 4))                                                                                            
+                                                    self.dcache[dc_set]["D"][nope] = 1
                                                     inst.cycles += id_penalty
-                                                else:
-                                                    inst.cycles += id_penalty
-                                                self.dcache[dc_set][self.dcache[dc_set]['LRU']] = list(range(range_data, range_data+16, 4))
-                                                self.dcache[dc_set]['LRU'] = self.dcache[dc_set]['LRU'] ^ 1
+                                                 else:
+                                                    if nope == 0:
+                                                        pass
+                                                    else:
+                                                        self.dcache[dc_set]['D'][self.dcache[dc_set]['LRU']] = 0
+                                                    self.dcache[dc_set][self.dcache[dc_set]['LRU']] = list(range(range_data, range_data+16, 4))
+                                                    inst.cycles += id_penalty                                                
+                                                 self.dcache[dc_set]['LRU'] = self.dcache[dc_set]['LRU'] ^ 1
                                              else:
-                                                if inst.name == "S.D":
-                                                    inst.cycles += id_penalty+1
-                                                else:
+                                                 self.dcache[dc_set]["D"] = [0, 0]
+                                                 nope = self.dcache[dc_set]['D'][0]
+                                                 if inst.name == "S.D":
+                                                    self.dcache[dc_set][0] = list(range(range_data, range_data+16, 4))
+                                                    if nope == 0:                                                        
+                                                        self.dcache[dc_set]["D"][0] = 1
+                                                    else:
+                                                        inst.cycles += id_penalty + self.config["D-Cache"]
+                                                    inst.cycles += id_penalty + self.config["D-Cache"]                                                    
+                                                 elif inst.name == "SW":
+                                                    self.dcache[dc_set][0] = list(range(range_data, range_data+16, 4))
+                                                    self.dcache[dc_set]["D"][nope] = 1
                                                     inst.cycles += id_penalty
-                                                self.dcache[dc_set][0] = list(range(range_data, range_data+16, 4))
-                                                self.dcache[dc_set]['LRU'] = 1
+                                                 else:
+                                                    if nope == 0:
+                                                        pass
+                                                    else:
+                                                        self.dcache[dc_set]['D'][0] = 0
+                                                    self.dcache[dc_set][0] = list(range(range_data, range_data+16, 4))
+                                                    inst.cycles += id_penalty                                                
+                                                 self.dcache[dc_set]['LRU'] = 1
+                                                
                                                                             
                             if not self.IU[0] and inst.iu_cycles == 1:                                                                                                
                                 if self.MEMbusy[1] == j-1:
                                     inst.SETTING += 1
                                 if instructions[j-1].SETTING > 1:
-                                    inst.Struct = "SET"
+                                    inst.Struct = "Y"
                                 if SET2 or not self.MEMbusy[0]: 
                                     self.IDbusy = [0, None]  
-                                    self.IU = [1, j]            
-                                    print("IU DONE", self.clock, inst.name, inst.op1)
+                                    self.IU = [1, j]                                    
                                     inst.iu_cycles -= 1   
                                     SET1 = True
                                 else:
-                                    inst.Struct = "A"                                    
+                                    inst.Struct = "Y"                                    
                                     continue
                             else:                                
                                 if inst.DMISS and BUS[0] and BUS[1]!=j:
-                                    inst.Struct = "DD"
+                                    inst.Struct = "Y"
                                     continue
                                 elif (inst.DMISS and not BUS[0]) or BUS[1] == j:                                                                         
                                     if self.MEMbusy[0] == 0 or self.MEMbusy[1] == j:                                    
                                         if self.MEMbusy[0] == 0:
                                             self.IU = [0, None]
                                             SET1 = False
-                                        self.MEMbusy = [1, j] 
-                                        print("Cycles", inst.cycles, inst.name, inst.op1, self.clock)
+                                        self.MEMbusy = [1, j]                                         
                                         inst.cycles -= 1                                    
                                         if inst.cycles <= 0:
                                             BUS = [False, None]
@@ -388,7 +420,7 @@ class Processor:
                                     else:                 
                                         inst.Struct = "Y"
                                 else:
-                                    inst.Struct = "DD"
+                                    inst.Struct = "Y"
                         elif inst.name in ["ADD.D", "SUB.D"]:
                             self.IDbusy = [0, None]
                             if not inst.pip:                                 
@@ -465,21 +497,47 @@ class Processor:
                                                 reg[inst.op1] = reg[inst.op2] - reg[inst.op3]
                                             else:
                                                 #inside DSUBI
-                                                reg[inst.op1] = reg[inst.op2] - int(inst.op3)                                
+                                                reg[inst.op1] = reg[inst.op2] - int(inst.op3)
+                                    elif inst.op2 is not None:
+                                        if inst.name in ["AND", "ANDI"]:
+                                            if inst.op3 in reg.keys():
+                                                #inside AND
+                                                reg[inst.op1] = reg[inst.op2] & reg[inst.op3]
+                                            else:
+                                                #inside ANDI
+                                                reg[inst.op1] = reg[inst.op2] & int(inst.op3)
+                                        elif inst.name in ["OR", "ORI"]:
+                                            if inst.op3 in reg.keys():
+                                                #inside OR
+                                                reg[inst.op1] = reg[inst.op2] | reg[inst.op3]
+                                            else:
+                                                #inside ORI
+                                                reg[inst.op1] = reg[inst.op2] | int(inst.op3)
+                                        elif inst.name == "LW":
+                                            haha = int(inst.op2[0]) + self.reg[inst.op2[-3:-1]]
+                                            if haha in data.keys():                                                
+                                                reg[inst.op1] = data[haha]                                                
+                                            else:
+                                                print(str(inst.op2)+" not in data.txt for LW!!")
+                                        elif inst.name == "SW":
+                                            haha = int(inst.op2[0]) + self.reg[inst.op2[-3:-1]]
+                                            if haha in data.keys():                                                
+                                                data[haha] = reg[inst.op1]                                                
+                                            else:
+                                                print(str(inst.op2)+" not in data.txt for SW!!")
                                 else:                                    
                                     continue
                             else:
-#                                self.ADD = [0, None]
                                 inst.stat = 4
                                 del self.reg_stat[inst.op1]
                                 inst.WB = self.clock
                                 self.WBbusy = [1, self.clock]                            
                         else:
-                            if self.clock == self.WBbusy[1]:
+                            if self.clock == self.WBbusy[1]:                                
                                 inst.Struct = "Y"                                
                                 if inst.name in ["LW", "SW", "L.D", "S.D", "DADD", "DADDI", "DSUB", "DSUBI", "AND", "ANDI", "OR", "ORI"]:
                                     inst.EX = self.clock
-                            elif self.clock > self.WBbusy[1]:
+                            elif self.clock > self.WBbusy[1]:                                
                                 inst.WB = self.clock
                                 if inst.name in ["ADD.D", "SUB.D"]:
                                     self.ADD = [0, None]
@@ -502,8 +560,7 @@ class Processor:
 #            for k in instructions:                
 #                print(k.IF, k.ID, k.EX, k.WB)
 #            print("\n")                
-            i+=1                    
-        print(self.dcache)
+            i+=1                            
         return instructions, NEED_LOOP, self.clock
         
 def print_table(inst, l, pos):
@@ -546,15 +603,17 @@ if __name__ == "__main__" :
     
     args = parser.parse_args()
     
-    root = "./test/test_case_3/"
+    root = "./test/test_case_1/"
 #    init_mips = Init_MIPS(root+"config.txt", root+"inst.txt", root+"data.txt", root+"reg.txt")    
     init_mips = Init_MIPS(root+args.config, root+args.inst, root+args.data, root+args.reg)    
+    a = init_mips.reg_val
+    b = init_mips.data
     instructionObjs = list()
     for el in init_mips.instructions:
         instructionObjs.append(Instructions(el, init_mips.config_dict))    
     mips = Processor(instructionObjs, init_mips.reg_val, init_mips.data, init_mips.loops, init_mips.instructions, init_mips.config_dict)
     
-#    file = open("output.txt", "w+", encoding="utf-8")
+#    file = open(root+args.result, "w+", encoding="utf-8")
 #    file.write(str(print_table(mips.final, init_mips.loops, mips.loop_pos)))
 #    file.write("\n\nTotal number of access requests for instruction cache: " + str(mips.ireq))
 #    file.write("\n\nNumber of instruction cache hits: " + str(mips.hits))

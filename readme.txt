@@ -1,6 +1,6 @@
 CMSC 611 - ADVANCED COMPUTER ARCHITECTURE PROJECT
 
-The main files for the project are named "load_data.py" and "MIPS.py". The "load_data.py" is build for parsing the data while the other is the main MIPS simulator.
+The project is written in Python. The main files for the project are named "load_data.py" and "MIPS.py". The "load_data.py" is build for parsing the data while the other is the main MIPS simulator.
 
 To run the project, you can simply call the below mentioned command on any linux machine:
 
@@ -15,8 +15,6 @@ I would like to point out though that the arguments passed to the shell script a
 	./make.sh -h 
 
 	./make.sh --help
-
-
 
 ABOUT THE PROJECT:
 

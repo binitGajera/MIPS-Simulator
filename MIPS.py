@@ -603,7 +603,7 @@ if __name__ == "__main__" :
     
     args = parser.parse_args()
     
-    root = "./test/test_case_1/"
+    root = "./test/test_case_2/"
 #    init_mips = Init_MIPS(root+"config.txt", root+"inst.txt", root+"data.txt", root+"reg.txt")    
     init_mips = Init_MIPS(root+args.config, root+args.inst, root+args.data, root+args.reg)    
     a = init_mips.reg_val

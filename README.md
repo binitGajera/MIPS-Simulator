@@ -1,8 +1,8 @@
-# CMSC 611 - ADVANCED COMPUTER ARCHITECTURE PROJECT
+## CMSC 611 - ADVANCED COMPUTER ARCHITECTURE PROJECT
 
 The project is written in Python. The main files for the project are named "load_data.py" and "MIPS.py". The "load_data.py" is build for parsing the data while the other is the main MIPS simulator.
 
-## Instructions
+### Instructions
 
 To run the project, you can simply call the below mentioned command on any linux machine:
 ```
@@ -18,6 +18,6 @@ I would like to point out though that the arguments passed to the shell script a
 
 ./make.sh --help
 ```
-## ABOUT THE PROJECT
+### ABOUT THE PROJECT
 
 	The project simualtes the MIPS processor as expected. I would like to specify that although the simulator supports more than average instructions from the MIPS it would not support the jump instruction but Branch instructions would be called successfully on it.

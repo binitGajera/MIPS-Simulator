@@ -18,6 +18,6 @@ I would like to point out though that the arguments passed to the shell script a
 
 ./make.sh --help
 ```
-### ABOUT THE PROJECT
+### About the project
 
 The project simualtes the MIPS processor as expected. I would like to specify that although the simulator supports more than average instructions from the MIPS it would not support the jump instruction but Branch instructions would be called successfully on it.

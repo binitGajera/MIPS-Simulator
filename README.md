@@ -1,4 +1,4 @@
-## CMSC 611 - ADVANCED COMPUTER ARCHITECTURE PROJECT
+## CMSC 611 - MIPS Simulator
 
 The project is written in Python. The main files for the project are named "load_data.py" and "MIPS.py". The "load_data.py" is build for parsing the data while the other is the main MIPS simulator.
 
